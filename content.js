@@ -1,6 +1,20 @@
 (function () {
   'use strict';
 
+  const runtime = typeof chrome !== 'undefined' && chrome?.runtime;
+  if (!runtime) return;
+
+  function safeSendMessage(msg) {
+    try {
+      if (typeof chrome === 'undefined' || !chrome?.runtime?.sendMessage) {
+        return Promise.resolve(null);
+      }
+      return chrome.runtime.sendMessage(msg);
+    } catch (e) {
+      return Promise.resolve(null);
+    }
+  }
+
   const OVERLAY_MESSAGES = {
     0: {
       title: '本日の視聴時間は終了テレ',
@@ -31,9 +45,7 @@
   let overlayEl = null;
   let timeDisplayEl = null;
   let lastReportedTime = 0;
-  let accumulatedSeconds = 0;
-  let trackedVideo = null;
-  let timeUpdateHandler = null;
+  let pollIntervalId = null;
   let isBypassed = false;
 
   function isShortsPage() {
@@ -41,24 +53,13 @@
   }
 
   function getVideoElement() {
-    const sel = document.querySelector('video.html5-main-video') || document.querySelector('video');
-    if (sel) return sel;
-    const shorts = document.querySelector('ytd-shorts');
-    if (shorts) {
-      const walk = (root) => {
-        const v = root.querySelector?.('video');
-        if (v) return v;
-        for (const el of root.querySelectorAll?.('*') || []) {
-          if (el.shadowRoot) {
-            const found = walk(el.shadowRoot);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-      return walk(shorts) || walk(document);
-    }
-    return document.querySelector('video');
+    const videos = Array.from(document.querySelectorAll('video'));
+    if (videos.length === 0) return null;
+    const playing = videos.find((v) => !v.paused);
+    if (playing) return playing;
+    const main = document.querySelector('video.html5-main-video') || document.querySelector('#movie_player video');
+    if (main) return main;
+    return videos.find((v) => v.videoWidth > 100) || videos[0];
   }
 
   function showOverlay(step) {
@@ -150,14 +151,14 @@
         showOverlay(step + 1);
       } else if (step === 2 || step === 3) {
         if (step === 3) {
-          chrome.runtime.sendMessage({ action: 'setBypass' }, () => {
+          safeSendMessage({ action: 'setBypass' }).then(() => {
             isBypassed = true;
             const video = getVideoElement();
             if (video) lastReportedTime = video.currentTime;
             hideOverlay();
             resumeVideo();
             startTimeTracking();
-          });
+          }).catch(() => {});
         } else {
           showOverlay(step + 1);
         }
@@ -198,9 +199,15 @@
 
   async function checkStateAndAct() {
     if (!isShortsPage()) return;
+    if (!runtime) return;
 
-    const response = await chrome.runtime.sendMessage({ action: 'getState' });
-    const { timeLimit = 30, usedTime = 0, isBlocked = false } = response;
+    let response;
+    try {
+      response = await safeSendMessage({ action: 'getState' });
+    } catch (e) {
+      return;
+    }
+    const { timeLimit = 30, usedTime = 0, isBlocked = false } = response || {};
 
     if (isBlocked && !isBypassed) {
       showOverlay(0);
@@ -258,28 +265,36 @@
   }
 
   function startTimeTracking() {
-    if (timeUpdateHandler) return;
+    if (pollIntervalId) return;
 
     const video = getVideoElement();
     if (!video) return;
 
-    trackedVideo = video;
     lastReportedTime = video.currentTime;
     showTimeDisplay();
 
-    const onTimeUpdate = async () => {
-      if (!video || video.paused) return;
+    safeSendMessage({ action: 'getState' }).then((r) => {
+      const used = r?.usedTime ?? 0;
+      const limit = (r?.timeLimit ?? 30) * 60;
+      updateTimeDisplay(used, limit);
+    }).catch(() => {});
 
-      const currentTime = video.currentTime;
-      accumulatedSeconds += currentTime - lastReportedTime;
+    pollIntervalId = setInterval(async () => {
+      const v = getVideoElement();
+      if (!v || v.paused) return;
+
+      const currentTime = v.currentTime;
+      if (currentTime < lastReportedTime) {
+        lastReportedTime = currentTime;
+        return;
+      }
+      const delta = currentTime - lastReportedTime;
+      const toReport = Math.floor(delta);
+      if (toReport < 1) return;
+
       lastReportedTime = currentTime;
-
-      const toReport = Math.floor(accumulatedSeconds);
-      if (toReport <= 0) return;
-
-      accumulatedSeconds -= toReport;
       try {
-        const response = await chrome.runtime.sendMessage({
+        const response = await safeSendMessage({
           action: 'addUsedTime',
           seconds: toReport,
         });
@@ -290,29 +305,19 @@
 
         if (usedSeconds >= limitSeconds) {
           stopTimeTracking();
-          await chrome.runtime.sendMessage({ action: 'setBlocked', blocked: true });
+          await safeSendMessage({ action: 'setBlocked', blocked: true });
           showOverlay(1);
         }
       } catch (_) {}
-    };
-
-    timeUpdateHandler = onTimeUpdate;
-    video.addEventListener('timeupdate', onTimeUpdate);
-
-    chrome.runtime.sendMessage({ action: 'getState' }, (r) => {
-      if (r?.usedTime != null && r?.timeLimit != null) {
-        updateTimeDisplay(r.usedTime, r.timeLimit * 60);
-      }
-    });
+    }, 1000);
   }
 
   function stopTimeTracking() {
-    if (trackedVideo && timeUpdateHandler) {
-      trackedVideo.removeEventListener('timeupdate', timeUpdateHandler);
+    if (pollIntervalId) {
+      clearInterval(pollIntervalId);
+      pollIntervalId = null;
     }
-    trackedVideo = null;
-    timeUpdateHandler = null;
-    accumulatedSeconds = 0;
+    lastReportedTime = 0;
     hideTimeDisplay();
   }
 
@@ -322,7 +327,6 @@
     const video = getVideoElement();
     if (video) {
       lastReportedTime = video.currentTime;
-      accumulatedSeconds = 0;
     }
 
     checkStateAndAct();
@@ -336,10 +340,14 @@
     scheduleInitRetry();
   });
 
+  let initDebounceId = null;
   const observer = new MutationObserver(() => {
-    if (isShortsPage() && getVideoElement() && !overlayEl) {
-      init();
-    }
+    if (!isShortsPage() || overlayEl) return;
+    if (initDebounceId) clearTimeout(initDebounceId);
+    initDebounceId = setTimeout(() => {
+      initDebounceId = null;
+      if (getVideoElement()) init();
+    }, 300);
   });
 
   let initRetryId = null;
@@ -351,7 +359,7 @@
     const id = setInterval(() => {
       if (!isShortsPage()) return;
       if (overlayEl) return;
-      if (timeUpdateHandler) {
+      if (pollIntervalId) {
         clearInterval(id);
         initRetryId = null;
         return;
