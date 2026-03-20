@@ -24,13 +24,28 @@ async function checkAndResetDaily() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(async () => {
-  await chrome.storage.local.set({
-    timeLimit: 30,
-    usedTime: 0,
-    lastResetDate: getTodayJST(),
-    isBlocked: false,
-  });
+chrome.runtime.onInstalled.addListener(async (details) => {
+  if (details.reason === 'install') {
+    await chrome.storage.local.set({
+      timeLimit: 1800,
+      timeLimitFormat: 'seconds',
+      usedTime: 0,
+      lastResetDate: getTodayJST(),
+      isBlocked: false,
+    });
+  } else if (details.reason === 'update') {
+    const data = await chrome.storage.local.get(['timeLimit', 'timeLimitFormat']);
+    const updates = {};
+    if (data.timeLimitFormat === undefined) {
+      updates.timeLimitFormat = 'seconds';
+      if (data.timeLimit !== undefined && [5, 10, 15, 30, 60, 90, 120].includes(data.timeLimit)) {
+        updates.timeLimit = data.timeLimit * 60;
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      await chrome.storage.local.set(updates);
+    }
+  }
 });
 
 chrome.runtime.onStartup.addListener(checkAndResetDaily);
@@ -43,6 +58,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       case 'getState': {
         const state = await chrome.storage.local.get([
           'timeLimit',
+          'timeLimitFormat',
           'usedTime',
           'isBlocked',
           'lastResetDate',
@@ -51,10 +67,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         break;
       }
       case 'addUsedTime': {
-        const { usedTime = 0, timeLimit = 30 } = await chrome.storage.local.get(['usedTime', 'timeLimit']);
+        const { usedTime = 0, timeLimit = 1800, timeLimitFormat } = await chrome.storage.local.get(['usedTime', 'timeLimit', 'timeLimitFormat']);
         const newUsed = usedTime + (message.seconds || 0);
         await chrome.storage.local.set({ usedTime: newUsed });
-        sendResponse({ usedTime: newUsed, timeLimit });
+        sendResponse({ usedTime: newUsed, timeLimit, timeLimitFormat });
         break;
       }
       case 'setBlocked': {

@@ -14,20 +14,29 @@
     <div class="setting-group">
       <label for="timeLimit">制限時間（1日あたり）</label>
       <select id="timeLimit">
-        <option value="5">5分</option>
-        <option value="10">10分</option>
-        <option value="15">15分</option>
-        <option value="30">30分</option>
-        <option value="60">60分</option>
-        <option value="90">90分</option>
-        <option value="120">120分</option>
+        <option value="300">5分</option>
+        <option value="600">10分</option>
+        <option value="900">15分</option>
+        <option value="1800">30分</option>
+        <option value="3600">60分</option>
+        <option value="5400">90分</option>
+        <option value="7200">120分</option>
         <option value="custom">カスタム</option>
       </select>
     </div>
 
     <div class="setting-group custom-group" id="customGroup" style="display: none;">
-      <label for="customMinutes">分数を入力</label>
-      <input type="number" id="customMinutes" min="1" max="480" value="30" placeholder="分">
+      <label>分数・秒数を入力</label>
+      <div class="custom-time-inputs">
+        <div>
+          <input type="number" id="customMinutes" min="0" max="480" value="30" placeholder="分">
+          <span class="unit">分</span>
+        </div>
+        <div>
+          <input type="number" id="customSeconds" min="0" max="59" value="0" placeholder="秒">
+          <span class="unit">秒</span>
+        </div>
+      </div>
     </div>
 
     <div class="usage-info" id="usageInfo">

@@ -20,7 +20,7 @@
       title: '本日の視聴時間は終了テレ',
       body: 'まだ見たいならテレを倒して見せよテレ',
       primary: 'テレサくんを倒す',
-      showCancel: false,
+      showCancel: true,
     },
     1: {
       title: 'まじっすかテレ',
@@ -46,10 +46,37 @@
   let timeDisplayEl = null;
   let lastReportedTime = 0;
   let lastReportedUsedSeconds = 0;
-  let timeLimitMinutes = 30;
+  let timeLimitSeconds = 1800;
+
+  function toLimitSeconds(val, format) {
+    if (format === 'seconds') return val;
+    if ([5, 10, 15, 30, 60, 90, 120].includes(val)) return val * 60;
+    return val;
+  }
   let pollIntervalId = null;
   let displayIntervalId = null;
   let isBypassed = false;
+
+  if (chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'local') return;
+      if (changes.timeLimit || changes.timeLimitFormat) {
+        const newLimit = changes.timeLimit?.newValue ?? timeLimitSeconds;
+        const newFormat = changes.timeLimitFormat?.newValue;
+        timeLimitSeconds = toLimitSeconds(newLimit, newFormat);
+      }
+      if (changes.isBlocked?.newValue === false) {
+        hideOverlay();
+        if (isShortsPage() && !pollIntervalId) {
+          const video = getVideoElement();
+          if (video) {
+            lastReportedTime = video.currentTime;
+            startTimeTracking();
+          }
+        }
+      }
+    });
+  }
 
   function isShortsPage() {
     return /\/shorts\//.test(window.location.pathname);
@@ -157,11 +184,19 @@
           safeSendMessage({ action: 'setBypass' }).then(() => {
             isBypassed = true;
             lastReportedUsedSeconds = 0;
-            const video = getVideoElement();
-            if (video) lastReportedTime = video.currentTime;
+            stopTimeTracking();
             hideOverlay();
             resumeVideo();
-            startTimeTracking();
+            const tryStart = (attempt = 0) => {
+              const video = getVideoElement();
+              if (video) {
+                lastReportedTime = video.currentTime;
+                startTimeTracking();
+                return;
+              }
+              if (attempt < 25) setTimeout(() => tryStart(attempt + 1), 200);
+            };
+            setTimeout(() => tryStart(), 100);
           }).catch(() => {});
         } else {
           showOverlay(step + 1);
@@ -172,7 +207,8 @@
     if (cancelBtn) {
       cancelBtn.addEventListener('click', () => {
         hideOverlay();
-        showOverlay(0);
+        stopTimeTracking();
+        window.location.href = 'https://www.youtube.com/';
       });
     }
 
@@ -211,7 +247,7 @@
     } catch (e) {
       return;
     }
-    const { timeLimit = 30, usedTime = 0, isBlocked = false } = response || {};
+    const { timeLimit = 1800, usedTime = 0, isBlocked = false } = response || {};
 
     if (isBlocked && !isBypassed) {
       showOverlay(0);
@@ -220,6 +256,16 @@
 
     if (isBypassed) {
       hideOverlay();
+      const tryStart = (attempt = 0) => {
+        const video = getVideoElement();
+        if (video && !pollIntervalId) {
+          lastReportedTime = video.currentTime;
+          startTimeTracking();
+          return;
+        }
+        if (attempt < 25) setTimeout(() => tryStart(attempt + 1), 200);
+      };
+      tryStart();
       return;
     }
 
@@ -282,14 +328,14 @@
 
     safeSendMessage({ action: 'getState' }).then((r) => {
       lastReportedUsedSeconds = r?.usedTime ?? 0;
-      timeLimitMinutes = r?.timeLimit ?? 30;
-      updateTimeDisplay(lastReportedUsedSeconds, timeLimitMinutes * 60);
+      timeLimitSeconds = toLimitSeconds(r?.timeLimit ?? 1800, r?.timeLimitFormat);
+      updateTimeDisplay(lastReportedUsedSeconds, timeLimitSeconds);
     }).catch(() => {});
 
     displayIntervalId = setInterval(() => {
       const v = getVideoElement();
       if (!v || !timeDisplayEl) return;
-      const limitSeconds = timeLimitMinutes * 60;
+      const limitSeconds = timeLimitSeconds;
       const ct = v.currentTime;
       const delta = ct >= lastReportedTime ? ct - lastReportedTime : 0;
       const liveUsed = lastReportedUsedSeconds + delta;
@@ -301,7 +347,7 @@
       if (!v || v.paused) return;
 
       const currentTime = v.currentTime;
-      const limitSeconds = timeLimitMinutes * 60;
+      const limitSeconds = timeLimitSeconds;
 
       if (currentTime < lastReportedTime) {
         lastReportedTime = currentTime;
@@ -318,11 +364,12 @@
           seconds: toReport,
         });
         lastReportedUsedSeconds = response?.usedTime ?? lastReportedUsedSeconds;
-        timeLimitMinutes = response?.timeLimit ?? timeLimitMinutes;
-        const limSec = timeLimitMinutes * 60;
+        timeLimitSeconds = toLimitSeconds(response?.timeLimit ?? timeLimitSeconds, response?.timeLimitFormat);
+        const limSec = timeLimitSeconds;
 
         if (lastReportedUsedSeconds >= limSec) {
           stopTimeTracking();
+          isBypassed = false;
           await safeSendMessage({ action: 'setBlocked', blocked: true });
           showOverlay(1);
         }

@@ -69,6 +69,30 @@ h1 {
   margin-top: -8px;
 }
 
+.custom-time-inputs {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.custom-time-inputs > div {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.custom-time-inputs input {
+  flex: 1;
+  min-width: 0;
+}
+
+.custom-time-inputs .unit {
+  font-size: 13px;
+  color: #666;
+  white-space: nowrap;
+}
+
 .usage-info {
   margin: 16px 0;
   padding: 12px;
