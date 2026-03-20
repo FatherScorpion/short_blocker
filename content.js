@@ -3,27 +3,27 @@
 
   const OVERLAY_MESSAGES = {
     0: {
-      title: '本日の視聴時間が終了しました',
-      body: '視聴を続けるには、以下の3つの確認を通過してください。',
-      primary: '確認を開始',
+      title: '本日の視聴時間は終了テレ',
+      body: 'まだ見たいならテレを倒して見せよテレ',
+      primary: 'テレサくんを倒す',
       showCancel: false,
     },
     1: {
-      title: '本日の視聴時間が終了しました',
-      body: '制限時間に達しました。少し休憩することをおすすめします。',
-      primary: '次へ',
-      showCancel: false,
+      title: 'まじっすかテレ',
+      body: 'え、本当に可愛いテレを倒すつもりテレか？',
+      primary: 'はい',
+      showCancel: true,
     },
     2: {
-      title: '本当に続けますか？',
-      body: 'もう少し休憩しませんか？続行すると、設定した制限を超えて視聴することになります。',
-      primary: '続ける',
+      title: '冗談ですやんwww',
+      body: 'え、まさか本気にしたテレかwww',
+      primary: 'テレサくんを殴る',
       showCancel: true,
     },
     3: {
-      title: '最後の確認です',
-      body: '続行すると制限を超えて視聴します。本当によろしいですか？',
-      primary: '続ける',
+      title: '（泣）',
+      body: '暴力反対テレ！',
+      primary: '視聴を続ける',
       showCancel: true,
     },
   };
