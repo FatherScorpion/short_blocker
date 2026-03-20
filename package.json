@@ -1,0 +1,11 @@
+{
+  "name": "short-blocker",
+  "version": "1.0.0",
+  "description": "YouTube Shorts時間制限Chrome拡張機能",
+  "scripts": {
+    "create-icons": "node create-icons.js"
+  },
+  "devDependencies": {
+    "jimp": "^0.22.12"
+  }
+}

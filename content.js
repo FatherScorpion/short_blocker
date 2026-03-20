@@ -29,8 +29,11 @@
   };
 
   let overlayEl = null;
+  let timeDisplayEl = null;
   let lastReportedTime = 0;
-  let checkIntervalId = null;
+  let accumulatedSeconds = 0;
+  let trackedVideo = null;
+  let timeUpdateHandler = null;
   let isBypassed = false;
 
   function isShortsPage() {
@@ -38,6 +41,23 @@
   }
 
   function getVideoElement() {
+    const sel = document.querySelector('video.html5-main-video') || document.querySelector('video');
+    if (sel) return sel;
+    const shorts = document.querySelector('ytd-shorts');
+    if (shorts) {
+      const walk = (root) => {
+        const v = root.querySelector?.('video');
+        if (v) return v;
+        for (const el of root.querySelectorAll?.('*') || []) {
+          if (el.shadowRoot) {
+            const found = walk(el.shadowRoot);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      return walk(shorts) || walk(document);
+    }
     return document.querySelector('video');
   }
 
@@ -195,44 +215,105 @@
     startTimeTracking();
   }
 
-  function startTimeTracking() {
-    if (checkIntervalId) return;
+  function formatTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
 
-    checkIntervalId = setInterval(async () => {
-      const video = getVideoElement();
+  function updateTimeDisplay(usedSeconds, limitSeconds) {
+    if (!timeDisplayEl) return;
+    timeDisplayEl.textContent = `${formatTime(usedSeconds)} / ${formatTime(limitSeconds)}`;
+  }
+
+  function showTimeDisplay() {
+    if (timeDisplayEl) return;
+    timeDisplayEl = document.createElement('div');
+    timeDisplayEl.id = 'shorts-blocker-time-display';
+    const style = document.createElement('style');
+    style.textContent = `
+      #shorts-blocker-time-display {
+        position: fixed;
+        bottom: 80px;
+        left: 16px;
+        z-index: 9999;
+        background: rgba(0,0,0,0.7);
+        color: #fff;
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        pointer-events: none;
+      }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(timeDisplayEl);
+  }
+
+  function hideTimeDisplay() {
+    if (timeDisplayEl) {
+      timeDisplayEl.remove();
+      timeDisplayEl = null;
+    }
+  }
+
+  function startTimeTracking() {
+    if (timeUpdateHandler) return;
+
+    const video = getVideoElement();
+    if (!video) return;
+
+    trackedVideo = video;
+    lastReportedTime = video.currentTime;
+    showTimeDisplay();
+
+    const onTimeUpdate = async () => {
       if (!video || video.paused) return;
 
       const currentTime = video.currentTime;
-      const delta = Math.floor(currentTime - lastReportedTime);
-      if (delta <= 0) {
-        lastReportedTime = currentTime;
-        return;
-      }
-
+      accumulatedSeconds += currentTime - lastReportedTime;
       lastReportedTime = currentTime;
-      const response = await chrome.runtime.sendMessage({
-        action: 'addUsedTime',
-        seconds: delta,
-      });
 
-      const usedSeconds = response?.usedTime ?? 0;
-      const timeLimit = response?.timeLimit ?? 30;
-      const limitSeconds = timeLimit * 60;
+      const toReport = Math.floor(accumulatedSeconds);
+      if (toReport <= 0) return;
 
-      if (usedSeconds >= limitSeconds) {
-        clearInterval(checkIntervalId);
-        checkIntervalId = null;
-        await chrome.runtime.sendMessage({ action: 'setBlocked', blocked: true });
-        showOverlay(1);
+      accumulatedSeconds -= toReport;
+      try {
+        const response = await chrome.runtime.sendMessage({
+          action: 'addUsedTime',
+          seconds: toReport,
+        });
+        const usedSeconds = response?.usedTime ?? 0;
+        const timeLimit = response?.timeLimit ?? 30;
+        const limitSeconds = timeLimit * 60;
+        updateTimeDisplay(usedSeconds, limitSeconds);
+
+        if (usedSeconds >= limitSeconds) {
+          stopTimeTracking();
+          await chrome.runtime.sendMessage({ action: 'setBlocked', blocked: true });
+          showOverlay(1);
+        }
+      } catch (_) {}
+    };
+
+    timeUpdateHandler = onTimeUpdate;
+    video.addEventListener('timeupdate', onTimeUpdate);
+
+    chrome.runtime.sendMessage({ action: 'getState' }, (r) => {
+      if (r?.usedTime != null && r?.timeLimit != null) {
+        updateTimeDisplay(r.usedTime, r.timeLimit * 60);
       }
-    }, 1000);
+    });
   }
 
   function stopTimeTracking() {
-    if (checkIntervalId) {
-      clearInterval(checkIntervalId);
-      checkIntervalId = null;
+    if (trackedVideo && timeUpdateHandler) {
+      trackedVideo.removeEventListener('timeupdate', timeUpdateHandler);
     }
+    trackedVideo = null;
+    timeUpdateHandler = null;
+    accumulatedSeconds = 0;
+    hideTimeDisplay();
   }
 
   function init() {
@@ -241,6 +322,7 @@
     const video = getVideoElement();
     if (video) {
       lastReportedTime = video.currentTime;
+      accumulatedSeconds = 0;
     }
 
     checkStateAndAct();
@@ -251,6 +333,7 @@
     isBypassed = false;
     hideOverlay();
     init();
+    scheduleInitRetry();
   });
 
   const observer = new MutationObserver(() => {
@@ -259,13 +342,46 @@
     }
   });
 
+  let initRetryId = null;
+  function scheduleInitRetry() {
+    if (initRetryId) {
+      clearInterval(initRetryId);
+      initRetryId = null;
+    }
+    const id = setInterval(() => {
+      if (!isShortsPage()) return;
+      if (overlayEl) return;
+      if (timeUpdateHandler) {
+        clearInterval(id);
+        initRetryId = null;
+        return;
+      }
+      if (getVideoElement()) {
+        init();
+        clearInterval(id);
+        initRetryId = null;
+      }
+    }, 500);
+    initRetryId = id;
+    setTimeout(() => {
+      if (initRetryId === id) {
+        clearInterval(id);
+        initRetryId = null;
+      }
+    }, 15000);
+  }
+
   if (document.body) {
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => {
+      init();
+      scheduleInitRetry();
+    });
   } else {
     init();
+    scheduleInitRetry();
   }
 })();

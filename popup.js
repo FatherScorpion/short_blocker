@@ -25,8 +25,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     customMinutes.value = timeLimit;
   }
 
-  limitDisplay.textContent = timeLimit;
-  usedTimeDisplay.textContent = Math.floor(usedTime / 60);
+  const formatTime = (sec) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+  limitDisplay.textContent = formatTime(timeLimit * 60);
+  usedTimeDisplay.textContent = formatTime(usedTime);
 
   // 保存処理
   saveBtn.addEventListener('click', async () => {

@@ -14,8 +14,8 @@ YouTube Shortsに設定可能な時間制限をかけるChrome拡張機能です
 1. このフォルダをダウンロードまたはクローン
 
 2. **アイコンの作成**（初回のみ）:
-   - `node create-icons.js` を実行すると `icons/` フォルダにアイコンが生成されます
-   - または手動で 16x16、48x48、128x128 のPNGを `icons/icon16.png`、`icons/icon48.png`、`icons/icon128.png` として配置
+   - `npm install` を実行後、`npm run create-icons` で `icons/` フォルダにアイコンを生成
+   - アイコンを更新した場合は、Chromeの拡張機能ページで「更新」ボタンをクリックして再読み込み
 
 3. Chromeで `chrome://extensions/` を開く
 
