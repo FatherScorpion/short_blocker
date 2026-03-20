@@ -14,9 +14,8 @@ YouTube Shortsに設定可能な時間制限をかけるChrome拡張機能です
 1. このフォルダをダウンロードまたはクローン
 
 2. **アイコンの作成**（初回のみ）:
-   - `icons` フォルダを作成
-   - 16x16、48x48、128x128 のPNGアイコンを `icons/icon16.png`、`icons/icon48.png`、`icons/icon128.png` として配置
-   - アイコンがない場合、Chromeはデフォルトアイコンで表示されます（開発時は `manifest.json` の `action` と `icons` を一時的に削除しても動作します）
+   - `node create-icons.js` を実行すると `icons/` フォルダにアイコンが生成されます
+   - または手動で 16x16、48x48、128x128 のPNGを `icons/icon16.png`、`icons/icon48.png`、`icons/icon128.png` として配置
 
 3. Chromeで `chrome://extensions/` を開く
 
@@ -55,6 +54,16 @@ short_blocker/
 - **Manifest V3** 対応
 - **chrome.storage.local** で設定を保存（オフライン動作、データはブラウザ内のみ）
 - **yt-navigate-finish** イベントでYouTubeのSPAナビゲーションを検知
+
+## GitHubでの管理
+
+```bash
+# リモートリポジトリを追加（GitHubでリポジトリ作成後）
+git remote add origin https://github.com/あなたのユーザー名/short_blocker.git
+
+# プッシュ
+git push -u origin master
+```
 
 ## ライセンス
 
