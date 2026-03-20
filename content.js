@@ -45,7 +45,10 @@
   let overlayEl = null;
   let timeDisplayEl = null;
   let lastReportedTime = 0;
+  let lastReportedUsedSeconds = 0;
+  let timeLimitMinutes = 30;
   let pollIntervalId = null;
+  let displayIntervalId = null;
   let isBypassed = false;
 
   function isShortsPage() {
@@ -222,15 +225,18 @@
     startTimeTracking();
   }
 
-  function formatTime(seconds) {
+  function formatTime(seconds, decimals = 1) {
     const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${String(s).padStart(2, '0')}`;
+    const s = seconds % 60;
+    if (decimals > 0) {
+      return `${m}:${s < 10 ? '0' : ''}${s.toFixed(decimals)}`;
+    }
+    return `${m}:${String(Math.floor(s)).padStart(2, '0')}`;
   }
 
   function updateTimeDisplay(usedSeconds, limitSeconds) {
     if (!timeDisplayEl) return;
-    timeDisplayEl.textContent = `${formatTime(usedSeconds)} / ${formatTime(limitSeconds)}`;
+    timeDisplayEl.textContent = `${formatTime(usedSeconds, 0)} / ${formatTime(limitSeconds, 0)}`;
   }
 
   function showTimeDisplay() {
@@ -274,16 +280,28 @@
     showTimeDisplay();
 
     safeSendMessage({ action: 'getState' }).then((r) => {
-      const used = r?.usedTime ?? 0;
-      const limit = (r?.timeLimit ?? 30) * 60;
-      updateTimeDisplay(used, limit);
+      lastReportedUsedSeconds = r?.usedTime ?? 0;
+      timeLimitMinutes = r?.timeLimit ?? 30;
+      updateTimeDisplay(lastReportedUsedSeconds, timeLimitMinutes * 60);
     }).catch(() => {});
+
+    displayIntervalId = setInterval(() => {
+      const v = getVideoElement();
+      if (!v || !timeDisplayEl) return;
+      const limitSeconds = timeLimitMinutes * 60;
+      const ct = v.currentTime;
+      const delta = ct >= lastReportedTime ? ct - lastReportedTime : 0;
+      const liveUsed = lastReportedUsedSeconds + delta;
+      updateTimeDisplay(liveUsed, limitSeconds);
+    }, 100);
 
     pollIntervalId = setInterval(async () => {
       const v = getVideoElement();
       if (!v || v.paused) return;
 
       const currentTime = v.currentTime;
+      const limitSeconds = timeLimitMinutes * 60;
+
       if (currentTime < lastReportedTime) {
         lastReportedTime = currentTime;
         return;
@@ -298,12 +316,11 @@
           action: 'addUsedTime',
           seconds: toReport,
         });
-        const usedSeconds = response?.usedTime ?? 0;
-        const timeLimit = response?.timeLimit ?? 30;
-        const limitSeconds = timeLimit * 60;
-        updateTimeDisplay(usedSeconds, limitSeconds);
+        lastReportedUsedSeconds = response?.usedTime ?? lastReportedUsedSeconds;
+        timeLimitMinutes = response?.timeLimit ?? timeLimitMinutes;
+        const limSec = timeLimitMinutes * 60;
 
-        if (usedSeconds >= limitSeconds) {
+        if (lastReportedUsedSeconds >= limSec) {
           stopTimeTracking();
           await safeSendMessage({ action: 'setBlocked', blocked: true });
           showOverlay(1);
@@ -313,6 +330,10 @@
   }
 
   function stopTimeTracking() {
+    if (displayIntervalId) {
+      clearInterval(displayIntervalId);
+      displayIntervalId = null;
+    }
     if (pollIntervalId) {
       clearInterval(pollIntervalId);
       pollIntervalId = null;
