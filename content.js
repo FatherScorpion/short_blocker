@@ -156,6 +156,7 @@
         if (step === 3) {
           safeSendMessage({ action: 'setBypass' }).then(() => {
             isBypassed = true;
+            lastReportedUsedSeconds = 0;
             const video = getVideoElement();
             if (video) lastReportedTime = video.currentTime;
             hideOverlay();

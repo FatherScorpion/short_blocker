@@ -63,7 +63,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         break;
       }
       case 'setBypass': {
-        await chrome.storage.local.set({ isBlocked: false });
+        await chrome.storage.local.set({ isBlocked: false, usedTime: 0 });
         sendResponse({ ok: true });
         break;
       }
